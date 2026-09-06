@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Cyber-Web English: ยิงใยทายศัพท์ ป.5</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;800&family=Prompt:wght@500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --neon-red: #ff2a2a;
+            --neon-cyan: #00f3ff;
+            --cyber-dark: #0f172a;
+            --gold: #fbbf24;
+        }
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: var(--cyber-dark);
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            touch-action: none;
+        }
+        
+        /* Comic Pop Aesthetics */
+        .text-comic {
+            font-family: 'Prompt', sans-serif;
+            text-transform: uppercase;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 4px 4px 0 var(--neon-red);
+            font-weight: 800;
+        }
+        .text-glow-cyan {
+            text-shadow: 0 0 5px var(--neon-cyan), 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan), 2px 2px 0px #000;
+        }
+        
+        /* Layouts */
+        #video-element {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror */
+            z-index: 1;
+            background: #000;
+        }
+        #ar-canvas, #fx-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none; /* Let clicks pass through unless specified */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .screen-shake {
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        .floating {
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        /* Bubbles */
+        .bubble-target {
+            pointer-events: auto;
+            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.9), rgba(200,230,255,0.8) 40%, rgba(100,150,255,0.6) 80%);
+            box-shadow: inset -5px -5px 15px rgba(0,0,0,0.2), 0 10px 20px rgba(0,243,255,0.3);
+            border: 2px solid rgba(255,255,255,0.5);
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+        }
+        .bubble-target.locked {
+            transform: scale(1.2);
+            box-shadow: 0 0 25px var(--neon-red), inset 0 0 15px var(--neon-red);
+            border-color: var(--neon-red);
+        }
+
+        /* Hero Card */
+        .hero-card {
+            background: linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(30,10,20,0.9) 100%);
+            border: 3px solid var(--gold);
+            box-shadow: 0 0 15px var(--neon-red), inset 0 0 20px rgba(251, 191, 36, 0.2);
+            position: relative;
+        }
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.4) 100%),
+                repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.05) 10px, rgba(255,255,255,0.05) 20px);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+        }
+
+        /* Camera error banner */
+        #camera-error-banner {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            z-index: 60;
+            background: #7f1d1d;
+            color: #fff;
+            font-family: 'Kanit', sans-serif;
+            padding: 12px 16px;
+            text-align: center;
+            font-size: 14px;
+            display: none;
+        }
+        #camera-error-banner button {
+            background: #fbbf24;
+            color: #000;
+            font-weight: 700;
+            border: none;
+            border-radius: 999px;
+            padding: 4px 14px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Camera error banner -->
+    <div id="camera-error-banner"></div>
+
+    <!-- Camera Output -->
+    <video id="video-element" autoplay playsinline muted></video>
+    
+    <!-- AR Layers -->
+    <canvas id="ar-canvas"></canvas>
+    <canvas id="fx-canvas"></canvas>
+
+    <!-- UI Layer -->
+    <div id="ui-layer" class="p-4 w-full h-full flex flex-col justify-between">
+        
+        <!-- Header HUD -->
+        <div class="flex justify-between items-start">
+            <div class="text-comic text-2xl text-white text-glow-cyan tracking-wider">
+                SCORE: <span id="score-display" class="text-yellow-400">0</span><br>
+                <span class="text-sm text-pink-400">COMBO x<span id="combo-display">0</span></span>
+            </div>
+            <div class="text-comic text-xl text-white">
+                ข้อ <span id="question-progress" class="text-neon-cyan">1/10</span>
+            </div>
+        </div>
+
+        <!-- Question Card -->
+        <div class="self-center mt-2 hero-card rounded-xl p-4 w-11/12 max-w-md text-center transform transition-transform" id="question-card">
+            <h2 class="text-comic text-xl text-yellow-400 mb-2">TARGET MISSION</h2>
+            <p id="question-text" class="text-white text-2xl font-bold font-['Kanit'] drop-shadow-md">
+                เตรียมตัวให้พร้อม!
+            </p>
+        </div>
+
+        <!-- Toast Alert -->
+        <div class="self-center mt-4">
+            <div id="toast-alert" class="hidden bg-cyan-900/80 border border-cyan-400 text-cyan-100 px-4 py-1 rounded-full text-sm font-bold shadow-[0_0_10px_#00f3ff] transition-opacity duration-300">
+                พร้อมยิง!
+            </div>
+        </div>
+
+        <!-- Floating Bubbles Container -->
+        <div id="bubbles-container" class="relative flex-1 w-full mt-4">
+            <!-- Bubbles will be injected via JS -->
+        </div>
+
+        <!-- Bottom Bar -->
+        <div class="flex justify-between items-end pb-4 px-2 pointer-events-auto">
+            <div class="bg-black/50 p-3 rounded-lg border border-gray-600 backdrop-blur-sm text-center">
+                <span class="text-2xl block mb-1">🤟</span>
+                <span class="text-xs text-white font-['Kanit']">ทำท่ายิงใย</span>
+            </div>
+            <button id="manual-shoot-btn" class="text-comic text-xl bg-gradient-to-r from-red-600 to-red-800 text-white px-8 py-4 rounded-full border-4 border-yellow-400 shadow-[0_0_15px_#ff2a2a] active:scale-95 transition-transform">
+                ยิงใย!
+            </button>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Start Game Modal -->
+    <div id="start-modal" class="modal-overlay absolute inset-0 z-50 flex items-center justify-center">
+        <div class="bg-gray-900 border-4 border-cyan-500 rounded-3xl p-8 max-w-sm w-11/12 text-center shadow-[0_0_30px_#00f3ff]">
+            <h1 class="text-comic text-4xl text-white mb-2 text-glow-cyan">AR CYBER-WEB</h1>
+            <h2 class="text-comic text-2xl text-yellow-400 mb-6">ENGLISH ป.5</h2>
+            <p class="text-white font-['Kanit'] mb-6">
+                ทดสอบคำศัพท์หมวด Describing People!<br>
+                ทำสัญลักษณ์มือ 🤟 หรือกดปุ่ม "ยิงใย" เพื่อเลือกคำตอบ
+            </p>
+            <button id="start-btn" class="text-comic text-2xl bg-red-600 hover:bg-red-500 text-white w-full py-3 rounded-xl border-2 border-yellow-400 shadow-[0_0_15px_#ff2a2a] transition-colors">
+                START MISSION
+            </button>
+            <p id="start-status" class="text-cyan-300 font-['Kanit'] text-sm mt-4 min-h-[1.2em]"></p>
+        </div>
+    </div>
+
+    <!-- Victory Modal -->
+    <div id="victory-modal" class="modal-overlay absolute inset-0 z-50 hidden items-center justify-center">
+        <div class="bg-gray-900 border-4 border-yellow-400 rounded-3xl p-8 max-w-sm w-11/12 text-center shadow-[0_0_30px_#fbbf24]">
+            <h1 class="text-comic text-4xl text-yellow-400 mb-4">MISSION COMPLETE!</h1>
+            <div id="stars-container" class="text-5xl mb-4 tracking-widest text-gray-700">
+                <!-- Stars injected here -->
+            </div>
+            <p class="text-white font-['Kanit'] text-xl mb-2">คะแนนรวม: <span id="final-score" class="font-bold text-cyan-400">0</span></p>
+            <p id="victory-message" class="text-gray-300 font-['Kanit'] mb-6">ยอดเยี่ยมมากฮีโร่!</p>
+            <button id="restart-btn" class="text-comic text-xl bg-cyan-600 hover:bg-cyan-500 text-white w-full py-3 rounded-xl border-2 border-white shadow-[0_0_15px_#00f3ff] transition-colors">
+                PLAY AGAIN
+            </button>
+        </div>
+    </div>
+
+<script>
+/** 
+ * --- GAME LOGIC & STATE --- 
+ */
+const GAME_QUESTIONS = [
+    { type: 'vocab', q: "ผู้ชายผมหยิก 👨‍🦱", ans: "curly hair", options: ["curly hair", "straight hair", "wavy hair", "short hair"] },
+    { type: 'color', q: "ตาสีฟ้า 👁️", ans: "blue eyes", options: ["blue eyes", "green eyes", "brown eyes", "black eyes"] },
+    { type: 'grammar1', q: "What _____ he look like?", ans: "does", options: ["does", "do", "is", "has"] },
+    { type: 'grammar2', q: "She _____ got long hair.", ans: "has", options: ["has", "have", "is", "does"] },
+    { type: 'opposite', q: "He is not tall. He is _____ 👦", ans: "short", options: ["short", "long", "big", "small"] },
+    { type: 'vocab', q: "ผมตรงยาว 👩", ans: "long straight hair", options: ["long straight hair", "short curly hair", "big brown eyes", "small nose"] },
+    { type: 'color', q: "ผมสีบลอนด์ 👱‍♀️", ans: "blonde hair", options: ["blonde hair", "black hair", "brown hair", "blue eyes"] },
+    { type: 'grammar1', q: "What _____ they look like?", ans: "do", options: ["do", "does", "are", "have"] },
+    { type: 'vocab', q: "จมูกใหญ่ 👃", ans: "big nose", options: ["big nose", "small nose", "big eyes", "small mouth"] },
+    { type: 'opposite', q: "Her mouth is not big. It is _____ 👄", ans: "small", options: ["small", "big", "short", "long"] }
+];
+
+let gameState = {
+    isPlaying: false,
+    score: 0,
+    combo: 0,
+    qIndex: 0,
+    questions: [],
+    currentAnswers: [],
+    lockedBubbleId: null,
+    cooldown: false
+};
+
+const UI = {
+    score: document.getElementById('score-display'),
+    combo: document.getElementById('combo-display'),
+    qProgress: document.getElementById('question-progress'),
+    qText: document.getElementById('question-text'),
+    qCard: document.getElementById('question-card'),
+    bubblesContainer: document.getElementById('bubbles-container'),
+    toast: document.getElementById('toast-alert'),
+    startModal: document.getElementById('start-modal'),
+    victoryModal: document.getElementById('victory-modal'),
+    finalScore: document.getElementById('final-score'),
+    starsContainer: document.getElementById('stars-container'),
+    startBtn: document.getElementById('start-btn'),
+    startStatus: document.getElementById('start-status'),
+    cameraErrorBanner: document.getElementById('camera-error-banner')
+};
+
+// Shuffle Array
+function shuffle(array) {
+    let currentIndex = array.length, randomIndex;
+    while (currentIndex != 0) {
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex--;
+        [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+    }
+    return array;
+}
+
+function initGame() {
+    gameState.score = 0;
+    gameState.combo = 0;
+    gameState.qIndex = 0;
+    gameState.questions = shuffle([...GAME_QUESTIONS]).slice(0, 10);
+    updateHUD();
+    loadQuestion();
+    gameState.isPlaying = true;
+    UI.startModal.classList.add('hidden');
+    UI.victoryModal.classList.add('hidden');
+    playAudioCtx();
+}
+
+function loadQuestion() {
+    if (gameState.qIndex >= gameState.questions.length) {
+        endGame();
+        return;
+    }
+    
+    const qData = gameState.questions[gameState.qIndex];
+    UI.qText.innerHTML = qData.q;
+    UI.qProgress.innerText = `${gameState.qIndex + 1}/10`;
+    
+    // Setup Answers
+    gameState.currentAnswers = shuffle([...qData.options]);
+    renderBubbles();
+    
+    // Animate Card
+    UI.qCard.classList.remove('scale-105');
+    void UI.qCard.offsetWidth; 
+    UI.qCard.classList.add('scale-105');
+    setTimeout(() => UI.qCard.classList.remove('scale-105'), 200);
+}
+
+function renderBubbles() {
+    UI.bubblesContainer.innerHTML = '';
+    const positions = [
+        { top: '10%', left: '15%' },
+        { top: '10%', right: '15%' },
+        { top: '50%', left: '20%' },
+        { top: '50%', right: '20%' }
+    ];
+    
+    gameState.currentAnswers.forEach((ans, idx) => {
+        const b = document.createElement('div');
+        b.className = `bubble-target floating absolute rounded-full flex items-center justify-center text-center font-['Prompt'] font-bold text-[#0f172a] shadow-lg w-24 h-24 sm:w-32 sm:h-32 text-sm sm:text-base cursor-pointer`;
+        b.id = `bubble-${idx}`;
+        b.innerText = ans;
+        b.dataset.ans = ans;
+        
+        // Apply position
+        const pos = positions[idx];
+        if(pos.top) b.style.top = pos.top;
+        if(pos.left) b.style.left = pos.left;
+        if(pos.right) b.style.right = pos.right;
+        
+        // Manual click fallback
+        b.onclick = () => handleShootTarget(b);
+        
+        UI.bubblesContainer.appendChild(b);
+    });
+}
+
+function updateHUD() {
+    UI.score.innerText = gameState.score;
+    UI.combo.innerText = gameState.combo;
+}
+
+function showToast(msg, isError = false) {
+    UI.toast.innerText = msg;
+    UI.toast.classList.remove('hidden', 'bg-cyan-900/80', 'border-cyan-400', 'text-cyan-100', 'bg-red-900/80', 'border-red-500', 'text-red-100');
+    if (isError) {
+        UI.toast.classList.add('bg-red-900/80', 'border-red-500', 'text-red-100');
+    } else {
+        UI.toast.classList.add('bg-cyan-900/80', 'border-cyan-400', 'text-cyan-100');
+    }
+    setTimeout(() => UI.toast.classList.add('hidden'), 1500);
+}
+
+function endGame() {
+    gameState.isPlaying = false;
+    UI.bubblesContainer.innerHTML = '';
+    UI.victoryModal.classList.remove('hidden');
+    UI.finalScore.innerText = gameState.score;
+    
+    let stars = 1;
+    if(gameState.score >= 800) stars = 3;
+    else if(gameState.score >= 500) stars = 2;
+    
+    let starsHtml = '';
+    for(let i=0; i<3; i++) {
+        starsHtml += `<span style="color: ${i < stars ? '#fbbf24' : '#4b5563'}">★</span>`;
+    }
+    UI.starsContainer.innerHTML = starsHtml;
+    playVictory();
+}
+
+/**
+ * --- WEB AUDIO API SYNTHESIZER ---
+ */
+let audioCtx;
+function playAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playThwip() {
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.15);
+    
+    filter.type = 'bandpass';
+    filter.frequency.value = 1000;
+    
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+    
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.2);
+}
+
+function playCorrect() {
+    if(!audioCtx) return;
+    const freqs = [523.25, 659.25, 783.99, 1046.50]; // C Major Arp
+    freqs.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, audioCtx.currentTime + i * 0.1);
+        gain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + i * 0.1 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + i * 0.1 + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + i * 0.1);
+        osc.stop(audioCtx.currentTime + i * 0.1 + 0.3);
+    });
+}
+
+function playWrong() {
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.3);
+}
+
+function playVictory() {
+    if(!audioCtx) return;
+    const notes = [
+        { f: 523.25, d: 0.15 }, { f: 659.25, d: 0.15 }, { f: 783.99, d: 0.15 }, { f: 1046.50, d: 0.4 }
+    ];
+    let time = audioCtx.currentTime;
+    notes.forEach(note => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = note.f;
+        gain.gain.setValueAtTime(0.3, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + note.d);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(time);
+        osc.stop(time + note.d);
+        time += note.d;
+    });
+}
+
+
+/**
+ * --- AR / MEDIAPIPE & CANVAS RENDERING ---
+ */
+const videoEl = document.getElementById('video-element');
+const arCanvas = document.getElementById('ar-canvas');
+const fxCanvas = document.getElementById('fx-canvas');
+const arCtx = arCanvas.getContext('2d');
+const fxCtx = fxCanvas.getContext('2d');
+
+let particles = [];
+let webStrands = [];
+let handData = null; // Store latest mediapipe landmarks
+let cameraStarted = false;
+let camera = null;
+
+// Resize handlers
+function resizeCanvas() {
+    arCanvas.width = window.innerWidth;
+    arCanvas.height = window.innerHeight;
+    fxCanvas.width = window.innerWidth;
+    fxCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// Map normalized coordinates from video frame to object-cover canvas
+function getCanvasCoords(normX, normY) {
+    const vW = videoEl.videoWidth;
+    const vH = videoEl.videoHeight;
+    if (!vW || !vH) return { x: normX * arCanvas.width, y: normY * arCanvas.height };
+
+    const videoRatio = vW / vH;
+    const canvasRatio = arCanvas.width / arCanvas.height;
+    
+    let drawW, drawH, offX, offY;
+    if (canvasRatio > videoRatio) {
+        drawW = arCanvas.width;
+        drawH = arCanvas.width / videoRatio;
+        offX = 0;
+        offY = (arCanvas.height - drawH) / 2;
+    } else {
+        drawH = arCanvas.height;
+        drawW = arCanvas.height * videoRatio;
+        offX = (arCanvas.width - drawW) / 2;
+        offY = 0;
+    }
+    
+    // Video is mirrored horizontally via CSS, so we invert X mapping
+    const mirrorX = 1 - normX;
+    return {
+        x: offX + mirrorX * drawW,
+        y: offY + normY * drawH
+    };
+}
+
+// MediaPipe Setup
+const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+});
+hands.onResults((results) => {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        handData = results.multiHandLandmarks[0];
+    } else {
+        handData = null;
+        gameState.lockedBubbleId = null;
+        clearBubbleLocks();
+    }
+});
+
+/**
+ * --- CAMERA INITIALIZATION (fixed) ---
+ * Key fixes vs. the original version:
+ * 1. Camera is only requested after the user taps "START MISSION" (a real user
+ *    gesture). Many mobile browsers silently block getUserMedia calls that fire
+ *    automatically on page load, especially inside embedded/iframe contexts.
+ * 2. The <video> element now has `muted` set — autoplaying video (even a camera
+ *    stream) without `muted` is blocked by most browsers' autoplay policies.
+ * 3. We surface real errors (permission denied, no camera found, insecure
+ *    context, etc.) to the user instead of failing silently.
+ * 4. We check that the page is served over HTTPS or localhost — getUserMedia is
+ *    simply unavailable on plain HTTP.
+ */
+function showCameraError(message) {
+    UI.cameraErrorBanner.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = message;
+    const retryBtn = document.createElement('button');
+    retryBtn.textContent = 'ลองอีกครั้ง';
+    retryBtn.onclick = async () => {
+        retryBtn.disabled = true;
+        const ok = await startCamera();
+        retryBtn.disabled = false;
+        if (ok) initGame();
+    };
+    UI.cameraErrorBanner.appendChild(span);
+    UI.cameraErrorBanner.appendChild(retryBtn);
+    UI.cameraErrorBanner.style.display = 'block';
+}
+
+function hideCameraError() {
+    UI.cameraErrorBanner.style.display = 'none';
+}
+
+// Checks whether the camera stream is still actually live (e.g. user could have
+// revoked permission or unplugged a webcam mid-session).
+function isCameraAlive() {
+    if (!cameraStarted || !videoEl.srcObject) return false;
+    const tracks = videoEl.srcObject.getVideoTracks ? videoEl.srcObject.getVideoTracks() : [];
+    return tracks.length > 0 && tracks[0].readyState === 'live';
+}
+
+async function startCamera() {
+    hideCameraError();
+
+    // Secure context check: getUserMedia requires HTTPS (or localhost/file for some browsers)
+    if (!window.isSecureContext) {
+        showCameraError('⚠️ ต้องเปิดหน้านี้ผ่าน HTTPS หรือ localhost กล้องถึงจะทำงานได้ (ลิงก์ http:// ธรรมดาจะใช้กล้องไม่ได้)');
+        return false;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCameraError('⚠️ เบราว์เซอร์นี้ไม่รองรับการเข้าถึงกล้อง (getUserMedia ไม่พร้อมใช้งาน)');
+        return false;
+    }
+
+    UI.startStatus.textContent = 'กำลังขอสิทธิ์เข้าถึงกล้อง...';
+
+    try {
+        camera = new Camera(videoEl, {
+            onFrame: async () => {
+                await hands.send({ image: videoEl });
+            },
+            width: 640,
+            height: 480,
+            facingMode: 'user'
+        });
+        await camera.start();
+        cameraStarted = true;
+        UI.startStatus.textContent = '';
+        return true;
+    } catch (err) {
+        console.error('Camera start failed:', err);
+        let msg = '⚠️ เปิดกล้องไม่สำเร็จ: ';
+        if (err && err.name === 'NotAllowedError') {
+            msg += 'คุณไม่ได้อนุญาตให้ใช้กล้อง กรุณาอนุญาตสิทธิ์กล้องในเบราว์เซอร์แล้วลองใหม่';
+        } else if (err && err.name === 'NotFoundError') {
+            msg += 'ไม่พบกล้องบนอุปกรณ์นี้';
+        } else if (err && err.name === 'NotReadableError') {
+            msg += 'กล้องถูกใช้งานโดยแอปอื่นอยู่ ปิดแอปอื่นที่ใช้กล้องแล้วลองใหม่';
+        } else {
+            msg += (err && err.message) ? err.message : 'ไม่ทราบสาเหตุ';
+        }
+        showCameraError(msg);
+        UI.startStatus.textContent = '';
+        return false;
+    }
+}
+
+/**
+ * --- GAMEPLAY MECHANICS & RENDER LOOP ---
+ */
+
+function distance(p1, p2) {
+    return Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
+}
+
+// Vector Cross Product for Palm vs Back
+function getHandSide(lm) {
+    const wrist = getCanvasCoords(lm[0].x, lm[0].y);
+    const indexMCP = getCanvasCoords(lm[5].x, lm[5].y);
+    const pinkyMCP = getCanvasCoords(lm[17].x, lm[17].y);
+    
+    const v1 = { x: indexMCP.x - wrist.x, y: indexMCP.y - wrist.y };
+    const v2 = { x: pinkyMCP.x - wrist.x, y: pinkyMCP.y - wrist.y };
+    const cross = v1.x * v2.y - v1.y * v2.x;
+    
+    // Dependent on mirroring. >0 usually means palm for right hand in selfie mode
+    return cross > 0 ? 'palm' : 'back';
+}
+
+function checkWebGesture(lm) {
+    // Relative distance mapping for Rotation-Invariant detection
+    const dist = (i1, i2) => {
+        const p1 = getCanvasCoords(lm[i1].x, lm[i1].y);
+        const p2 = getCanvasCoords(lm[i2].x, lm[i2].y);
+        return distance(p1, p2);
+    };
+
+    // Reference: Distance from Wrist(0) to MiddleMCP(9)
+    const refDist = dist(0, 9); 
+    if(refDist === 0) return false;
+
+    // Check ratios
+    const indexExt = dist(0, 8) / refDist; // tip vs wrist
+    const midFold = dist(0, 12) / refDist;
+    const ringFold = dist(0, 16) / refDist;
+    const pinkyExt = dist(0, 20) / refDist;
+
+    // 🤟 Rules: Index/Pinky extended, Middle/Ring folded inward
+    return (indexExt > 1.5 && pinkyExt > 1.3 && midFold < 1.0 && ringFold < 1.0);
+}
+
+function clearBubbleLocks() {
+    document.querySelectorAll('.bubble-target').forEach(el => el.classList.remove('locked'));
+}
+
+function handleShootTarget(bubbleEl) {
+    if(!gameState.isPlaying || gameState.cooldown || !bubbleEl) return;
+    gameState.cooldown = true;
+    
+    const targetAns = bubbleEl.dataset.ans;
+    const correctAns = gameState.questions[gameState.qIndex].ans;
+    
+    // Bubble Center for visual
+    const rect = bubbleEl.getBoundingClientRect();
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.top + rect.height / 2;
+    
+    // Determine shooter start position (palm or bottom screen)
+    let startX = window.innerWidth / 2;
+    let startY = window.innerHeight;
+    if(handData) {
+        const p = getCanvasCoords(handData[9].x, handData[9].y);
+        startX = p.x; startY = p.y;
+    }
+
+    // Audio & FX
+    playThwip();
+    createWebStrand(startX, startY, targetX, targetY);
+    
+    setTimeout(() => {
+        createParticles(targetX, targetY, targetAns === correctAns ? '#00f3ff' : '#ff2a2a');
+        bubbleEl.style.display = 'none'; // hide bubble
+        
+        if (targetAns === correctAns) {
+            playCorrect();
+            document.body.classList.add('screen-shake');
+            setTimeout(() => document.body.classList.remove('screen-shake'), 400);
+            
+            gameState.combo++;
+            gameState.score += 100 + (gameState.combo * 10);
+            showToast('THWIP! ถั่วต้ม!', false);
+        } else {
+            playWrong();
+            gameState.combo = 0;
+            showToast('Miss!', true);
+        }
+        
+        updateHUD();
+        
+        setTimeout(() => {
+            gameState.qIndex++;
+            gameState.cooldown = false;
+            loadQuestion();
+        }, 1000);
+        
+    }, 150); // delay matching web travel time
+}
+
+// Draw Loop
+function renderLoop() {
+    arCtx.clearRect(0, 0, arCanvas.width, arCanvas.height);
+    fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+
+    // --- AR GLOVE DRAWING ---
+    if (handData && gameState.isPlaying) {
+        // Draw connections
+        arCtx.lineWidth = 4;
+        arCtx.strokeStyle = 'rgba(220, 38, 38, 0.8)'; // Red
+        const connections = [
+            [0,1,2,3,4], [0,5,6,7,8], [0,17,18,19,20],
+            [5,9,13,17], [9,10,11,12], [13,14,15,16]
+        ];
+        
+        connections.forEach(path => {
+            arCtx.beginPath();
+            path.forEach((idx, i) => {
+                const pt = getCanvasCoords(handData[idx].x, handData[idx].y);
+                if (i === 0) arCtx.moveTo(pt.x, pt.y);
+                else arCtx.lineTo(pt.x, pt.y);
+            });
+            arCtx.stroke();
+        });
+
+        // Base polygon
+        arCtx.fillStyle = 'rgba(15, 23, 42, 0.6)'; // Cyber Dark Blue
+        arCtx.beginPath();
+        [0, 5, 9, 13, 17].forEach((idx, i) => {
+            const pt = getCanvasCoords(handData[idx].x, handData[idx].y);
+            if(i===0) arCtx.moveTo(pt.x, pt.y);
+            else arCtx.lineTo(pt.x, pt.y);
+        });
+        arCtx.closePath();
+        arCtx.fill();
+
+        // Details based on side
+        const side = getHandSide(handData);
+        const midPoint = getCanvasCoords(handData[9].x, handData[9].y);
+        
+        if (side === 'palm') {
+            // Web shooter glow
+            arCtx.beginPath();
+            arCtx.arc(midPoint.x, midPoint.y + 20, 15, 0, Math.PI*2);
+            arCtx.fillStyle = 'rgba(0, 243, 255, 0.8)';
+            arCtx.shadowColor = '#00f3ff';
+            arCtx.shadowBlur = 15;
+            arCtx.fill();
+            arCtx.shadowBlur = 0;
+        } else {
+            // Arachnid Emblem (simplistic star/cross)
+            arCtx.beginPath();
+            arCtx.arc(midPoint.x, midPoint.y + 15, 10, 0, Math.PI*2);
+            arCtx.fillStyle = 'rgba(251, 191, 36, 0.9)'; // Gold
+            arCtx.fill();
+            arCtx.strokeStyle = '#000';
+            arCtx.lineWidth = 2;
+            arCtx.moveTo(midPoint.x-15, midPoint.y+15); arCtx.lineTo(midPoint.x+15, midPoint.y+15);
+            arCtx.moveTo(midPoint.x, midPoint.y); arCtx.lineTo(midPoint.x, midPoint.y+30);
+            arCtx.stroke();
+        }
+
+        // Glowing Tips for Index & Pinky
+        [8, 20].forEach(idx => {
+            const pt = getCanvasCoords(handData[idx].x, handData[idx].y);
+            arCtx.beginPath();
+            arCtx.arc(pt.x, pt.y, 6, 0, Math.PI*2);
+            arCtx.fillStyle = '#fff';
+            arCtx.shadowColor = '#00f3ff';
+            arCtx.shadowBlur = 10;
+            arCtx.fill();
+            arCtx.shadowBlur = 0;
+        });
+
+        // Logic: Lock-on & Shoot
+        if(!gameState.cooldown) {
+            // Find nearest bubble
+            const bubbles = document.querySelectorAll('.bubble-target');
+            let nearestDist = Infinity;
+            let nearestEl = null;
+
+            bubbles.forEach(b => {
+                const rect = b.getBoundingClientRect();
+                const bx = rect.left + rect.width / 2;
+                const by = rect.top + rect.height / 2;
+                const d = distance(midPoint, {x: bx, y: by});
+                if(d < nearestDist) {
+                    nearestDist = d;
+                    nearestEl = b;
+                }
+            });
+
+            clearBubbleLocks();
+            if (nearestEl && nearestDist < 300) { // Range limit
+                nearestEl.classList.add('locked');
+                gameState.lockedBubbleId = nearestEl.id;
+
+                // Check Gesture
+                if (checkWebGesture(handData)) {
+                    handleShootTarget(nearestEl);
+                }
+            } else {
+                gameState.lockedBubbleId = null;
+            }
+        }
+    }
+
+    // --- FX DRAWING ---
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.life -= 1;
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+            continue;
+        }
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2; // Gravity
+        
+        fxCtx.globalAlpha = p.life / p.maxLife;
+        fxCtx.beginPath();
+        fxCtx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        fxCtx.fillStyle = p.color;
+        fxCtx.fill();
+    }
+    fxCtx.globalAlpha = 1.0;
+
+    // Web Strands (Quadratic curve)
+    for (let i = webStrands.length - 1; i >= 0; i--) {
+        let w = webStrands[i];
+        w.progress += 0.15;
+        if(w.progress > 1) {
+            webStrands.splice(i, 1);
+            continue;
+        }
+        
+        const cpX = (w.startX + w.targetX) / 2 + (Math.random()*40 - 20); // Control point for curve
+        const cpY = (w.startY + w.targetY) / 2 - 100;
+        
+        fxCtx.beginPath();
+        fxCtx.moveTo(w.startX, w.startY);
+        // Interpolate point along quadratic curve
+        const t = w.progress;
+        const currentX = (1-t)*(1-t)*w.startX + 2*(1-t)*t*cpX + t*t*w.targetX;
+        const currentY = (1-t)*(1-t)*w.startY + 2*(1-t)*t*cpY + t*t*w.targetY;
+        
+        fxCtx.quadraticCurveTo(cpX, cpY, currentX, currentY);
+        fxCtx.strokeStyle = '#ffffff';
+        fxCtx.lineWidth = 4;
+        fxCtx.shadowColor = '#00f3ff';
+        fxCtx.shadowBlur = 10;
+        fxCtx.stroke();
+        fxCtx.shadowBlur = 0;
+    }
+
+    requestAnimationFrame(renderLoop);
+}
+renderLoop();
+
+// FX Helpers
+function createParticles(x, y, color) {
+    for(let i=0; i<20; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 15,
+            r: Math.random() * 4 + 2,
+            life: 30, maxLife: 30, color: color
+        });
+    }
+}
+function createWebStrand(startX, startY, targetX, targetY) {
+    webStrands.push({ startX, startY, targetX, targetY, progress: 0 });
+}
+
+// Event Listeners
+// Camera permission is requested ONLY here, inside a real click handler — this
+// is what makes the browser show its native "Allow camera?" prompt reliably.
+UI.startBtn.addEventListener('click', async () => {
+    if (isCameraAlive()) {
+        initGame();
+        return;
+    }
+    UI.startBtn.disabled = true;
+    UI.startBtn.classList.add('opacity-60');
+    const ok = await startCamera();
+    UI.startBtn.disabled = false;
+    UI.startBtn.classList.remove('opacity-60');
+    if (ok) {
+        initGame();
+    }
+    // If not ok, the error banner explains why; user can fix (grant permission) and tap START again.
+});
+
+const restartBtn = document.getElementById('restart-btn');
+restartBtn.addEventListener('click', async () => {
+    // If the camera stream died (permission revoked, device unplugged, tab was
+    // backgrounded on some mobile browsers, etc.) ask for it again before restarting.
+    if (isCameraAlive()) {
+        initGame();
+        return;
+    }
+    restartBtn.disabled = true;
+    restartBtn.classList.add('opacity-60');
+    const ok = await startCamera();
+    restartBtn.disabled = false;
+    restartBtn.classList.remove('opacity-60');
+    if (ok) {
+        initGame();
+    } else {
+        showToast('กรุณาอนุญาตกล้องเพื่อเล่นต่อ', true);
+    }
+});
+document.getElementById('manual-shoot-btn').addEventListener('click', () => {
+    if(gameState.lockedBubbleId) {
+        const target = document.getElementById(gameState.lockedBubbleId);
+        handleShootTarget(target);
+    } else {
+        showToast('ยังไม่ล็อคเป้าหมาย!', true);
+    }
+});
+
+</script>
+</body>
+</html>
